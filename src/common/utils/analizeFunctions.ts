@@ -23,10 +23,9 @@ export function analyzeFunctions(ast: File): FunctionInfo[] {
     path: NodePath<
       FunctionDeclaration | FunctionExpression | ArrowFunctionExpression
     >,
-  ) => {
+  ): FunctionInfo => {
     const { node, scope } = path;
 
-    // Имя функции
     let name: string | null = null;
 
     if ('id' in node && node.id && node.id.type === 'Identifier') {
@@ -38,7 +37,6 @@ export function analyzeFunctions(ast: File): FunctionInfo[] {
       }
     }
 
-    // Проверяем, обернута ли функция хуком
     let isWrappedInHook = false;
     let parentPath = path.parentPath;
     while (parentPath) {
@@ -62,13 +60,9 @@ export function analyzeFunctions(ast: File): FunctionInfo[] {
       parentPath = parentPath.parentPath;
     }
 
-    // Количество аргументов
     const argumentCount = node.params.length;
-
-    // Асинхронная ли функция
     const isAsync = node.async;
 
-    // Подсчет локальных переменных
     let localVariableCount = 0;
     const bindings = scope.getAllBindings();
     for (const bindingName in bindings) {
@@ -80,7 +74,6 @@ export function analyzeFunctions(ast: File): FunctionInfo[] {
       }
     }
 
-    // Проверка рекурсии
     let hasRecursiveCall = false;
     if (name) {
       path.traverse({
@@ -96,23 +89,67 @@ export function analyzeFunctions(ast: File): FunctionInfo[] {
       });
     }
 
-    // Цикломатическая сложность
     let cyclomaticComplexity = 1;
+    let returnStatementCount = 0;
+    let maxNestingDepth = 0;
+    let currentDepth = 0;
+
+    const increaseDepth = () => {
+      currentDepth++;
+      if (currentDepth > maxNestingDepth) {
+        maxNestingDepth = currentDepth;
+      }
+    };
+
+    const decreaseDepth = () => {
+      currentDepth--;
+    };
+
     path.traverse({
-      IfStatement() {
-        cyclomaticComplexity++;
+      IfStatement: {
+        enter() {
+          cyclomaticComplexity++;
+          increaseDepth();
+        },
+        exit() {
+          decreaseDepth();
+        },
       },
-      ForStatement() {
-        cyclomaticComplexity++;
+      ForStatement: {
+        enter() {
+          cyclomaticComplexity++;
+          increaseDepth();
+        },
+        exit() {
+          decreaseDepth();
+        },
       },
-      WhileStatement() {
-        cyclomaticComplexity++;
+      WhileStatement: {
+        enter() {
+          cyclomaticComplexity++;
+          increaseDepth();
+        },
+        exit() {
+          decreaseDepth();
+        },
       },
-      DoWhileStatement() {
-        cyclomaticComplexity++;
+      DoWhileStatement: {
+        enter() {
+          cyclomaticComplexity++;
+          increaseDepth();
+        },
+        exit() {
+          decreaseDepth();
+        },
       },
-      SwitchCase() {
-        cyclomaticComplexity++;
+      SwitchCase: {
+        enter() {
+          cyclomaticComplexity++;
+          increaseDepth();
+        },
+        exit() {
+          decreaseDepth();
+        },
       },
       LogicalExpression() {
         cyclomaticComplexity++;
@@ -120,17 +157,25 @@ export function analyzeFunctions(ast: File): FunctionInfo[] {
       ConditionalExpression() {
         cyclomaticComplexity++;
       },
-      TryStatement() {
-        cyclomaticComplexity++;
+      TryStatement: {
+        enter() {
+          cyclomaticComplexity++;
+          increaseDepth();
+        },
+        exit() {
+          decreaseDepth();
+        },
+      },
+      ReturnStatement(returnPath) {
+        returnStatementCount++;
       },
     });
 
-    // Возвращаемое значение
-    let hasReturn = false;
+    let hasReturn = returnStatementCount > 0;
     let returnType = 'unknown';
+
     path.traverse({
       ReturnStatement(returnPath) {
-        hasReturn = true;
         const arg = returnPath.node.argument;
         if (!arg) returnType = 'void';
         else {
@@ -191,6 +236,8 @@ export function analyzeFunctions(ast: File): FunctionInfo[] {
       cyclomaticComplexity,
       hasReturn,
       returnType,
+      maxNestingDepth,
+      returnStatementCount,
     };
   };
 
